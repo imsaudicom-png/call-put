@@ -61,6 +61,9 @@ class AnalysisResult(BaseModel):
 
     hiddenSignal: Optional[HiddenSignal]
 
+    signal: Literal["CALL", "PUT", "WAIT"] = "WAIT"
+    stopLoss: Optional[float] = None
+
     confidenceScore: int  # 0-100
     reasoning: list[str]
 

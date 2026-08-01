@@ -1,4 +1,4 @@
-import { AnalysisResult, MTFRadarResult } from "./types";
+import { AnalysisResult, MTFRadarResult, WatchlistResult } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -19,6 +19,10 @@ export function fetchAnalysis(symbol: string, timeframe: string): Promise<Analys
 export function fetchMTFRadar(symbol: string): Promise<MTFRadarResult> {
   const params = new URLSearchParams({ symbol });
   return getJSON(`${API_BASE}/api/mtf-radar?${params.toString()}`);
+}
+
+export function fetchWatchlist(): Promise<WatchlistResult> {
+  return getJSON(`${API_BASE}/api/watchlist`);
 }
 
 export function searchSymbols(query: string): Promise<{ symbol: string; name: string }[]> {

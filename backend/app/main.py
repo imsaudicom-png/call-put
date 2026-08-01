@@ -38,12 +38,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-STRUCTURE_LENGTH = 8
-RSI_LEN = 14
-ATR_LEN = 14
-ATR_MULT = 2.0
-LB_LEFT, LB_RIGHT = 5, 5
-RANGE_LOWER, RANGE_UPPER = 5, 60
+TENKAN_LEN = 9
+KIJUN_LEN = 26
+SENKOU_B_LEN = 52
+DISPLACEMENT = 26
+SR_LEN = 50
+SR_STRENGTH = 3
+RANGE_LEN = 20
+VOL_LEN = 20
+OBV_LEN = 10
+VOL_RATIO_THRESHOLD = 1.2
 
 MTF_LIST = ["3m", "5m", "15m"]
 
@@ -53,41 +57,24 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
     if len(df) < (STRUCTURE_LENGTH * 2 + 5):
         raise HTTPException(422, "بيانات غير كافية لهذا الرمز/الفريم لإجراء تحليل موثوق.")
 
-    rsi = ind.wilder_rsi(df["close"], RSI_LEN)
-    atr = ind.wilder_atr(df["high"], df["low"], df["close"], ATR_LEN)
-    ema50 = ind.ema(df["close"], 50)
-    ema200 = ind.ema(df["close"], 200)
-    vol_ma = ind.sma(df["volume"], 20)
-    is_vol_ok = df["volume"] > (vol_ma * 0.8)
-
-    structure = ind.compute_structure(df, STRUCTURE_LENGTH)
-    targets = ind.compute_targets(df, structure, rsi, ema50, is_vol_ok)
-    hidden_signal = ind.compute_hidden_signal(
-        df, rsi, atr, LB_LEFT, LB_RIGHT, RANGE_LOWER, RANGE_UPPER, ATR_MULT
+    sig = ind.compute_ichimoku_signal(
+        df,
+        tenkan_len=TENKAN_LEN, kijun_len=KIJUN_LEN, senkou_b_len=SENKOU_B_LEN, displacement=DISPLACEMENT,
+        sr_len=SR_LEN, sr_strength=SR_STRENGTH, range_len=RANGE_LEN,
+        vol_len=VOL_LEN, obv_len=OBV_LEN, vol_ratio_threshold=VOL_RATIO_THRESHOLD,
     )
 
-    close_now = float(df["close"].iloc[-1])
-    ema50_now = float(ema50.iloc[-1])
-    ema200_now = float(ema200.iloc[-1])
-    rsi_now = float(rsi.iloc[-1])
-    vol_ok_now = bool(is_vol_ok.iloc[-1])
-
-    confidence, reasoning, strength = ind.compute_confidence_and_reasoning(
-        structure, rsi_now, vol_ok_now, close_now, ema50_now, ema200_now, hidden_signal
-    )
-
-    trend = "BULLISH" if structure["state"] == 1 else "BEARISH" if structure["state"] == -1 else "NEUTRAL"
-    midpoint = None
-    if structure["upper"] is not None and structure["lower"] is not None:
-        midpoint = round((structure["upper"] + structure["lower"]) / 2, 4)
-
-    def _line_points(line: dict | None) -> list[LinePoint]:
-        if line is None:
+    def _hline_points(value: float | None) -> list[LinePoint]:
+        if value is None or len(df) < 2:
             return []
         return [
-            LinePoint(time=int(line["x1"].timestamp()), value=line["y1"]),
-            LinePoint(time=int(line["x2"].timestamp()), value=line["y2"]),
+            LinePoint(time=int(df.index[0].timestamp()), value=value),
+            LinePoint(time=int(df.index[-1].timestamp()), value=value),
         ]
+
+    targets_list = [t for t in [sig["target1"], sig["target2"], sig["target3"]] if t is not None]
+    bullish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BULLISH" and targets_list else None
+    bearish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BEARISH" and targets_list else None
 
     return AnalysisResult(
         symbol=symbol,
@@ -98,29 +85,30 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
                    low=r["low"], close=r["close"], volume=r["volume"])
             for idx, r in df.iterrows()
         ],
-        ema50=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in ema50.dropna().items()],
-        ema200=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in ema200.dropna().items()],
-        trend=trend,
-        trendStrength=strength,
-        structureState=structure["state"],
-        resistanceLine=_line_points(structure["resistance_line"]),
-        supportLine=_line_points(structure["support_line"]),
-        support=round(structure["lower"], 4) if structure["lower"] else None,
-        resistance=round(structure["upper"], 4) if structure["upper"] else None,
-        midpoint=midpoint,
+        # هذين الحقلين كانا EMA50/200، صاروا يمثلوا Tenkan/Kijun (خطوط الإيشيموكو الأساسية)
+        ema50=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in sig["tenkan"].dropna().items()],
+        ema200=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in sig["kijun"].dropna().items()],
+        trend=sig["trend"],
+        trendStrength=sig["trendStrength"],
+        structureState=sig["structureState"],
+        resistanceLine=_hline_points(sig["resistance"]),
+        supportLine=_hline_points(sig["support"]),
+        support=sig["support"],
+        resistance=sig["resistance"],
+        midpoint=sig["midpoint"],
         lastPivotHigh=PivotPoint(
-            price=structure["last_pivot_high"]["price"],
-            time=int(structure["last_pivot_high"]["time"].timestamp()),
-        ) if structure["last_pivot_high"] else None,
+            price=sig["lastPivotHigh"]["price"], time=int(sig["lastPivotHigh"]["time"].timestamp()),
+        ) if sig["lastPivotHigh"] else None,
         lastPivotLow=PivotPoint(
-            price=structure["last_pivot_low"]["price"],
-            time=int(structure["last_pivot_low"]["time"].timestamp()),
-        ) if structure["last_pivot_low"] else None,
-        bullishTargets=targets["bullish"],
-        bearishTargets=targets["bearish"],
-        hiddenSignal=HiddenSignal(**hidden_signal) if hidden_signal else None,
-        confidenceScore=confidence,
-        reasoning=reasoning,
+            price=sig["lastPivotLow"]["price"], time=int(sig["lastPivotLow"]["time"].timestamp()),
+        ) if sig["lastPivotLow"] else None,
+        bullishTargets=bullish_targets,
+        bearishTargets=bearish_targets,
+        hiddenSignal=None,
+        signal=sig["signal"],
+        stopLoss=sig["stopLoss"],
+        confidenceScore=sig["confidenceScore"],
+        reasoning=sig["reasoning"],
     )
 
 
@@ -139,14 +127,19 @@ def analyze(
 
 @app.get("/api/mtf-radar", response_model=MTFRadarResult)
 def mtf_radar(symbol: str = Query(...)):
-    """رادار الفريمات المتعددة — نفس محرك الهيكل مطبّقًا على 11 فريمًا زمنيًا."""
+    """رادار الفريمات المتعددة — نفس محرك الإيشيموكو الجديد مطبّقًا على 3 فريمات زمنية."""
     entries = []
-    labels = {1: "اختراق 🔥", -1: "كسر 🚨", 0: "داخل ⏳"}
+    labels = {1: "CALL 🟢", -1: "PUT 🔴", 0: "انتظار ⏳"}
     for tf in MTF_LIST:
         try:
             df = dp.fetch_ohlcv(symbol.strip().upper(), tf)
-            structure = ind.compute_structure(df, STRUCTURE_LENGTH)
-            state = structure["state"]
+            sig = ind.compute_ichimoku_signal(
+                df, tenkan_len=TENKAN_LEN, kijun_len=KIJUN_LEN, senkou_b_len=SENKOU_B_LEN,
+                displacement=DISPLACEMENT, sr_len=SR_LEN, sr_strength=SR_STRENGTH,
+                range_len=RANGE_LEN, vol_len=VOL_LEN, obv_len=OBV_LEN,
+                vol_ratio_threshold=VOL_RATIO_THRESHOLD,
+            )
+            state = sig["structureState"]
         except Exception:
             state = 0
         entries.append(MTFRadarEntry(timeframe=tf, state=state, label=labels[state]))

@@ -34,11 +34,11 @@ export default function ChartView({ result }: { result: AnalysisResult }) {
       }))
     );
 
-    const ema50Series = chart.addLineSeries({ color: "#4caf50", lineWidth: 1, title: "EMA 50" });
-    ema50Series.setData(result.ema50.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    const tenkanSeries = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "Tenkan" });
+    tenkanSeries.setData(result.ema50.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
 
-    const ema200Series = chart.addLineSeries({ color: "#2962ff", lineWidth: 1, title: "EMA 200" });
-    ema200Series.setData(result.ema200.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    const kijunSeries = chart.addLineSeries({ color: "#e91e63", lineWidth: 1, title: "Kijun" });
+    kijunSeries.setData(result.ema200.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
 
     if (result.resistanceLine.length === 2) {
       const s = chart.addLineSeries({ color: "#f23645", lineWidth: 2 });

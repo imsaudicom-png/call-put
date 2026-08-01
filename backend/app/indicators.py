@@ -305,3 +305,159 @@ def compute_confidence_and_reasoning(
         strength = "WEAK"
 
     return score, reasoning, strength
+
+
+# ==================== محرك جديد: إيشيموكو + VWAP + OBV + دعم/مقاومة (استبدال المثلث الذهبي) ====================
+# ترجمة حرفية لمؤشر "بوصلة السوق v2.6 | Ichimoku + S/R Prices" من Pine Script.
+
+def donchian_mid(high: pd.Series, low: pd.Series, length: int) -> pd.Series:
+    return (high.rolling(length).max() + low.rolling(length).min()) / 2
+
+
+def session_vwap(df: pd.DataFrame) -> pd.Series:
+    """يطابق ta.vwap(close) — يتصفّر كل يوم تداول (Session) من جديد."""
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    tpv = typical * df["volume"]
+    day_key = pd.Series(df.index.date, index=df.index)
+    cum_tpv = tpv.groupby(day_key).cumsum()
+    cum_vol = df["volume"].groupby(day_key).cumsum()
+    return cum_tpv / cum_vol.replace(0, np.nan)
+
+
+def obv_series(close: pd.Series, volume: pd.Series) -> pd.Series:
+    """يطابق ta.obv."""
+    direction = np.sign(close.diff()).fillna(0)
+    return (direction * volume).cumsum()
+
+
+def support_resistance_from_pivots(df: pd.DataFrame, sr_len: int = 50, sr_strength: int = 3) -> tuple[float, float]:
+    """يطابق منطق lowBuffer/highBuffer (آخر 5 نقاط ارتكاز) مع fallback لأعلى/أدنى سعر بالنافذة."""
+    ph = pivot_high(df["high"], sr_strength, sr_strength).dropna().tolist()[-5:]
+    pl = pivot_low(df["low"], sr_strength, sr_strength).dropna().tolist()[-5:]
+    sr_highest = float(df["high"].tail(sr_len).max())
+    sr_lowest = float(df["low"].tail(sr_len).min())
+    nearest_resistance = max(ph) if ph else sr_highest
+    nearest_support = min(pl) if pl else sr_lowest
+    return float(nearest_support), float(nearest_resistance)
+
+
+def compute_ichimoku_signal(
+    df: pd.DataFrame,
+    tenkan_len: int = 9, kijun_len: int = 26, senkou_b_len: int = 52, displacement: int = 26,
+    sr_len: int = 50, sr_strength: int = 3, range_len: int = 20,
+    vol_len: int = 20, obv_len: int = 10, vol_ratio_threshold: float = 1.2,
+) -> dict:
+    """
+    يطابق شروط callSignal/putSignal في المؤشر الجديد:
+    priceAboveCloud + cloudBull + tenkanBull + chikouBull + priceAboveVWAP + obvBull + strongVolume + breakout
+    (والعكس للـ PUT). يُرجع حالة آخر شمعة فقط.
+    """
+    tenkan = donchian_mid(df["high"], df["low"], tenkan_len)
+    kijun = donchian_mid(df["high"], df["low"], kijun_len)
+    span_a = (tenkan + kijun) / 2
+    span_b = donchian_mid(df["high"], df["low"], senkou_b_len)
+
+    cloud_top = pd.concat([span_a.shift(displacement), span_b.shift(displacement)], axis=1).max(axis=1)
+    cloud_bottom = pd.concat([span_a.shift(displacement), span_b.shift(displacement)], axis=1).min(axis=1)
+    price_above_cloud = df["close"] > cloud_top
+    price_below_cloud = df["close"] < cloud_bottom
+    cloud_bull = span_a > span_b
+    cloud_bear = span_a < span_b
+    tenkan_bull = tenkan > kijun
+    tenkan_bear = tenkan < kijun
+    chikou_bull = df["close"] > df["close"].shift(displacement)
+    chikou_bear = df["close"] < df["close"].shift(displacement)
+
+    vwap = session_vwap(df)
+    price_above_vwap = df["close"] > vwap
+    price_below_vwap = df["close"] < vwap
+
+    obv = obv_series(df["close"], df["volume"])
+    obv_ma = sma(obv, obv_len)
+    obv_bull = (obv > obv_ma) & (obv > obv.shift(1))
+    obv_bear = (obv < obv_ma) & (obv < obv.shift(1))
+
+    vol_avg = sma(df["volume"], vol_len)
+    vol_ratio = df["volume"] / vol_avg.replace(0, np.nan)
+    strong_volume = vol_ratio >= vol_ratio_threshold
+
+    range_high = df["high"].shift(1).rolling(range_len).max()
+    range_low = df["low"].shift(1).rolling(range_len).min()
+    breakout = df["close"] > range_high
+    breakdown = df["close"] < range_low
+
+    def _b(series: pd.Series) -> bool:
+        v = series.iloc[-1]
+        return bool(v) if not pd.isna(v) else False
+
+    bull_flags = {
+        "priceAboveCloud": _b(price_above_cloud), "cloudBull": _b(cloud_bull),
+        "tenkanBull": _b(tenkan_bull), "chikouBull": _b(chikou_bull),
+        "priceAboveVWAP": _b(price_above_vwap), "obvBull": _b(obv_bull),
+        "strongVolume": _b(strong_volume), "breakout": _b(breakout),
+    }
+    bear_flags = {
+        "priceBelowCloud": _b(price_below_cloud), "cloudBear": _b(cloud_bear),
+        "tenkanBear": _b(tenkan_bear), "chikouBear": _b(chikou_bear),
+        "priceBelowVWAP": _b(price_below_vwap), "obvBear": _b(obv_bear),
+        "strongVolume": _b(strong_volume), "breakdown": _b(breakdown),
+    }
+    bull_score = sum(bull_flags.values())
+    bear_score = sum(bear_flags.values())
+
+    call_signal = all(bull_flags.values())
+    put_signal = all(bear_flags.values())
+    signal = "CALL" if call_signal else ("PUT" if put_signal else "WAIT")
+
+    if bull_score > bear_score and bull_score >= 5:
+        trend, structure_state = "BULLISH", 1
+    elif bear_score > bull_score and bear_score >= 5:
+        trend, structure_state = "BEARISH", -1
+    else:
+        trend, structure_state = "NEUTRAL", 0
+
+    confidence = max(0, min(100, round(50 + (bull_score - bear_score) * 6)))
+    strength = "STRONG" if confidence >= 70 else "MODERATE" if confidence >= 45 else "WEAK"
+
+    labels_ar = {
+        "priceAboveCloud": "السعر فوق سحابة الإيشيموكو", "priceBelowCloud": "السعر تحت سحابة الإيشيموكو",
+        "cloudBull": "السحابة صاعدة (Span A أعلى من Span B)", "cloudBear": "السحابة هابطة (Span A أدنى من Span B)",
+        "tenkanBull": "خط Tenkan أعلى من Kijun", "tenkanBear": "خط Tenkan أدنى من Kijun",
+        "chikouBull": "السعر الحالي أعلى من سعر قبل 26 شمعة", "chikouBear": "السعر الحالي أدنى من سعر قبل 26 شمعة",
+        "priceAboveVWAP": "السعر فوق VWAP", "priceBelowVWAP": "السعر تحت VWAP",
+        "obvBull": "OBV صاعد ومؤكد", "obvBear": "OBV هابط ومؤكد",
+        "strongVolume": "حجم التداول قوي (≥1.2x المتوسط)",
+        "breakout": "اختراق أعلى نطاق آخر 20 شمعة", "breakdown": "كسر أدنى نطاق آخر 20 شمعة",
+    }
+    active_flags = bull_flags if bull_score >= bear_score else bear_flags
+    reasoning = [labels_ar[k] for k, v in active_flags.items() if v] or ["لا توجد محاذاة واضحة بين الشروط الثمانية حاليًا."]
+    reasoning.append(f"عدد الشروط الصاعدة المتحققة: {bull_score}/8 — الهابطة: {bear_score}/8.")
+
+    nearest_support, nearest_resistance = support_resistance_from_pivots(df, sr_len, sr_strength)
+    close_now = float(df["close"].iloc[-1])
+
+    target1 = float(tenkan.iloc[-1]) if not pd.isna(tenkan.iloc[-1]) else None
+    target2 = float(kijun.iloc[-1]) if not pd.isna(kijun.iloc[-1]) else None
+    target3_raw = cloud_top.iloc[-1] if trend == "BULLISH" else cloud_bottom.iloc[-1]
+    target3 = float(target3_raw) if not pd.isna(target3_raw) else None
+
+    atr14 = wilder_atr(df["high"], df["low"], df["close"], 14)
+    atr_now = float(atr14.iloc[-1]) if not pd.isna(atr14.iloc[-1]) else None
+    stop_loss = None
+    if atr_now is not None:
+        stop_loss = round(close_now - atr_now * 1.5, 4) if trend == "BULLISH" else round(close_now + atr_now * 1.5, 4)
+
+    ph = pivot_high(df["high"], sr_strength, sr_strength).dropna()
+    pl = pivot_low(df["low"], sr_strength, sr_strength).dropna()
+    last_pivot_high = {"price": float(ph.iloc[-1]), "time": ph.index[-1]} if len(ph) else None
+    last_pivot_low = {"price": float(pl.iloc[-1]), "time": pl.index[-1]} if len(pl) else None
+
+    return {
+        "trend": trend, "structureState": structure_state, "trendStrength": strength,
+        "confidenceScore": confidence, "reasoning": reasoning, "signal": signal,
+        "support": round(nearest_support, 4), "resistance": round(nearest_resistance, 4),
+        "midpoint": round((nearest_support + nearest_resistance) / 2, 4),
+        "tenkan": tenkan, "kijun": kijun, "vwap": vwap,
+        "target1": target1, "target2": target2, "target3": target3, "stopLoss": stop_loss,
+        "lastPivotHigh": last_pivot_high, "lastPivotLow": last_pivot_low,
+    }
