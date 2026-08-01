@@ -45,7 +45,7 @@ ATR_MULT = 2.0
 LB_LEFT, LB_RIGHT = 5, 5
 RANGE_LOWER, RANGE_UPPER = 5, 60
 
-MTF_LIST = ["1m", "3m", "5m", "15m", "30m", "45m", "1h", "75m", "2h", "4h", "1D"]
+MTF_LIST = ["3m", "5m", "15m"]
 
 
 def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:

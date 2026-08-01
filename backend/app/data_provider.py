@@ -5,6 +5,8 @@
 سجّل مفتاحًا مجانيًا من: https://twelvedata.com/
 ثم ضعه في متغير البيئة TWELVE_DATA_API_KEY
 """
+import time
+import threading
 import httpx
 import pandas as pd
 from fastapi import HTTPException
@@ -12,6 +14,37 @@ from fastapi import HTTPException
 from .config import settings
 
 BASE_URL = "https://api.twelvedata.com"
+
+# ── تخزين مؤقت في الذاكرة لكل (رمز, فريم) ────────────────────────────────
+# يمنع إعادة طلب نفس البيانات من Twelve Data خلال مدة صلاحية الفريم نفسه
+# (مثلاً فريم 5m لا تتغير شمعته الأخيرة إلا كل 90 ثانية تقريبًا، فلا داعي لطلب جديد قبلها)
+_ohlcv_cache: dict[tuple[str, str], tuple[float, "pd.DataFrame"]] = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_ttl(timeframe: str) -> int:
+    return settings.CACHE_TTL_SECONDS.get(timeframe, 60)
+
+
+# ── محدّد معدّل الطلبات (Rate Limiter) على مستوى السيرفر بالكامل ─────────
+# خطة Twelve Data المجانية تسمح بـ 8 طلبات/دقيقة فقط. بدل ما نرفض الطلب لما
+# نتجاوز الحد، نخلي كل طلب ينتظر دوره (طابور) حتى يتوفر له "مقعد" ضمن آخر 60 ثانية.
+_MAX_CALLS_PER_MINUTE = 7  # نترك هامش 1 طلب احتياطي عن الحد الرسمي (8)
+_call_timestamps: list[float] = []
+_rate_lock = threading.Lock()
+
+
+def _wait_for_rate_limit_slot():
+    while True:
+        with _rate_lock:
+            now = time.monotonic()
+            while _call_timestamps and now - _call_timestamps[0] >= 60:
+                _call_timestamps.pop(0)
+            if len(_call_timestamps) < _MAX_CALLS_PER_MINUTE:
+                _call_timestamps.append(now)
+                return
+            sleep_for = 60 - (now - _call_timestamps[0]) + 0.1
+        time.sleep(max(sleep_for, 0.1))
 
 # تحويل رموز الفريمات المستخدمة في الموقع إلى الصيغة التي يفهمها Twelve Data
 # (بعض الفريمات مثل 3m و75m غير مدعومة مباشرة، فنجلب فريمًا أصغر ونعيد تجميعه Resample)
@@ -49,6 +82,14 @@ def fetch_ohlcv(symbol: str, timeframe: str, outputsize: int = None) -> pd.DataF
             "مفتاح Twelve Data غير مُهيأ على السيرفر. أضف TWELVE_DATA_API_KEY في متغيرات البيئة.",
         )
 
+    cache_key = (symbol, timeframe)
+    ttl = _cache_ttl(timeframe)
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _ohlcv_cache.get(cache_key)
+        if cached and (now - cached[0] < ttl):
+            return cached[1].tail(outputsize or settings.DEFAULT_CANDLE_COUNT)
+
     interval, resample_rule = TF_MAP[timeframe]
     size = outputsize or settings.DEFAULT_CANDLE_COUNT
     # عند الحاجة لإعادة تجميع (resample) نطلب بيانات أكثر من الفريم الأصغر لتغطية نفس المدى الزمني
@@ -62,6 +103,9 @@ def fetch_ohlcv(symbol: str, timeframe: str, outputsize: int = None) -> pd.DataF
         "format": "JSON",
         "order": "ASC",
     }
+
+    # ننتظر دورنا ضمن حد 8 طلبات/دقيقة بدل ما نضرب الـ API ونرجع خطأ للمستخدم
+    _wait_for_rate_limit_slot()
 
     try:
         resp = httpx.get(f"{BASE_URL}/time_series", params=params, timeout=15)
@@ -82,6 +126,9 @@ def fetch_ohlcv(symbol: str, timeframe: str, outputsize: int = None) -> pd.DataF
 
     if resample_rule:
         df = _resample(df, resample_rule)
+
+    with _cache_lock:
+        _ohlcv_cache[cache_key] = (now, df)
 
     return df.tail(size)
 
