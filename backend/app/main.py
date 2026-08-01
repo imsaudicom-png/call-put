@@ -15,14 +15,11 @@ from .schemas import (
     MTFRadarResult, MTFRadarEntry, WatchlistResult, WatchlistEntry,
 )
 
-# قائمة المتابعة الافتراضية (بعد حذف التكرار من قائمة المستخدم)
+# قائمة المتابعة الافتراضية — 15 سهم فقط، محسوبة عشان تتوافق مع حد Twelve Data
+# المجاني (8 credits/دقيقة). كل رمز إضافي = credit إضافي عند تحديث القائمة.
 DEFAULT_WATCHLIST = [
-    "TSLA", "UNH", "CAT", "NVDA", "AVGO", "META", "MU", "SPY", "QQQ", "ZM",
-    "UPST", "XOM", "UBRE", "SMCO", "SNOW", "SBUX", "PLTR", "PDD", "ORCL", "NFLX",
-    "FDX", "MDTR", "MSFT", "MRNA", "MDB", "MCD", "MA", "LULU", "LLY", "LMT",
-    "IBM", "HD", "GS", "GME", "GE", "FSLR", "DIS", "DIA", "DELL", "DAL",
-    "CVS", "CRWD", "CRM", "ARM", "COST", "COIN", "BA", "AXP", "ASML", "APP",
-    "ANET", "AMZN", "GOOG", "AMD", "AMAT", "ADBE", "AAPL", "CVNA", "MRK", "CVX", "PEP",
+    "SPY", "CVX", "AAPL", "MSFT", "NVDA", "UNH", "META", "AMZN",
+    "GOOG", "AVGO", "AMD", "NFLX", "PLTR", "COIN", "DELL",
 ]
 
 # تخزين مؤقت بسيط في الذاكرة لتفادي استهلاك الحصة اليومية من الـ API عند كل تحديث للصفحة

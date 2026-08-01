@@ -27,23 +27,25 @@ def _cache_ttl(timeframe: str) -> int:
 
 
 # ── محدّد معدّل الطلبات (Rate Limiter) على مستوى السيرفر بالكامل ─────────
-# خطة Twelve Data المجانية تسمح بـ 8 طلبات/دقيقة فقط. بدل ما نرفض الطلب لما
-# نتجاوز الحد، نخلي كل طلب ينتظر دوره (طابور) حتى يتوفر له "مقعد" ضمن آخر 60 ثانية.
-_MAX_CALLS_PER_MINUTE = 7  # نترك هامش 1 طلب احتياطي عن الحد الرسمي (8)
-_call_timestamps: list[float] = []
+# خطة Twelve Data المجانية تسمح بـ 8 credits/دقيقة فقط. المهم: طلب واحد فيه عدة
+# رموز (batch) يستهلك credit مستقل لكل رمز — طلب فيه 7 رموز = 7 credits دفعة وحدة،
+# مو 1! فلازم نحسب "وزن" كل طلب (عدد الرموز فيه) مو بس عدد الطلبات.
+_MAX_CREDITS_PER_MINUTE = 7  # نترك هامش 1 credit احتياطي عن الحد الرسمي (8)
+_call_log: list[tuple[float, int]] = []  # (وقت الطلب, عدد الـ credits المستهلكة)
 _rate_lock = threading.Lock()
 
 
-def _wait_for_rate_limit_slot():
+def _wait_for_rate_limit_slot(weight: int = 1):
     while True:
         with _rate_lock:
             now = time.monotonic()
-            while _call_timestamps and now - _call_timestamps[0] >= 60:
-                _call_timestamps.pop(0)
-            if len(_call_timestamps) < _MAX_CALLS_PER_MINUTE:
-                _call_timestamps.append(now)
+            while _call_log and now - _call_log[0][0] >= 60:
+                _call_log.pop(0)
+            used = sum(w for _, w in _call_log)
+            if used + weight <= _MAX_CREDITS_PER_MINUTE:
+                _call_log.append((now, weight))
                 return
-            sleep_for = 60 - (now - _call_timestamps[0]) + 0.1
+            sleep_for = 60 - (now - _call_log[0][0]) + 0.1
         time.sleep(max(sleep_for, 0.1))
 
 # تحويل رموز الفريمات المستخدمة في الموقع إلى الصيغة التي يفهمها Twelve Data
@@ -135,30 +137,34 @@ def fetch_ohlcv(symbol: str, timeframe: str, outputsize: int = None) -> pd.DataF
 
 def fetch_batch_quotes(symbols: list[str]) -> dict[str, dict]:
     """
-    يجلب السعر الحالي ونسبة التغير لعدة رموز بطلب واحد فقط (Twelve Data /quote يدعم رموزًا
-    متعددة مفصولة بفواصل). هذا ضروري لتفادي حد 8 طلبات/دقيقة في الخطة المجانية عند عرض
-    قائمة متابعة كبيرة، بدل عمل طلب منفصل لكل رمز.
+    يجلب السعر الحالي ونسبة التغير لعدة رموز. Twelve Data يحسب credit مستقل لكل
+    رمز حتى لو كانوا بنفس الطلب، فنقسمهم لمجموعات صغيرة (7 كحد أقصى) ونستخدم
+    نفس محدّد المعدّل المستخدم في fetch_ohlcv لضمان عدم تجاوز حد الخطة المجانية.
     يُرجع dict: {symbol: {"price": float, "percent_change": float}} — الرموز الفاشلة تُستبعد بصمت.
     """
     if not settings.TWELVE_DATA_API_KEY or not symbols:
         return {}
 
     result: dict[str, dict] = {}
-    # Twelve Data يحدد حد أقصى معقول لعدد الرموز بالطلب الواحد؛ 60 عادة آمن ضمن حد الرد
-    chunk_size = 60
+    chunk_size = 7  # يطابق _MAX_CREDITS_PER_MINUTE عشان مجموعة وحدة ما تتجاوز الحد لحالها
     for i in range(0, len(symbols), chunk_size):
         chunk = symbols[i:i + chunk_size]
         params = {
             "symbol": ",".join(chunk),
             "apikey": settings.TWELVE_DATA_API_KEY,
         }
+        _wait_for_rate_limit_slot(weight=len(chunk))
         try:
             resp = httpx.get(f"{BASE_URL}/quote", params=params, timeout=20)
             data = resp.json()
         except httpx.HTTPError:
             continue
 
-        # عند رمز واحد Twelve Data يُرجع كائن مباشرة، وعند عدة رموز يُرجع dict برموز كمفاتيح
+        # عند رمز واحد Twelve Data يُرجع كائن مباشرة، وعند عدة رموز يُرجع dict برموز كمفاتيح.
+        # لو تجاوزنا الحد رغم كل شي، Twelve Data يرجع كائن خطأ وحيد (status/code/message)
+        # بدل dict برموز — نتحقق من هذا صراحة عشان ما نفسره غلط كأنه "رموز فاشلة".
+        if isinstance(data, dict) and data.get("status") == "error":
+            continue
         if len(chunk) == 1:
             data = {chunk[0]: data}
 
