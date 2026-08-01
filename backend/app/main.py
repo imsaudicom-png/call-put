@@ -3,7 +3,6 @@
 تشغيل محلي: uvicorn app.main:app --reload --port 8000
 """
 import time
-import threading
 import asyncio
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,21 +12,8 @@ from . import data_provider as dp
 from . import indicators as ind
 from .schemas import (
     AnalysisResult, Candle, LinePoint, PivotPoint, HiddenSignal,
-    MTFRadarResult, MTFRadarEntry, WatchlistResult, WatchlistEntry,
+    MTFRadarResult, MTFRadarEntry,
 )
-
-# قائمة المتابعة الافتراضية — 15 سهم فقط، محسوبة عشان تتوافق مع حد Twelve Data
-# المجاني (8 credits/دقيقة). كل رمز إضافي = credit إضافي عند تحديث القائمة.
-DEFAULT_WATCHLIST = [
-    "SPY", "CVX", "AAPL", "MSFT", "NVDA", "UNH", "META", "AMZN",
-    "GOOG", "AVGO", "AMD", "NFLX", "PLTR", "COIN", "DELL",
-]
-
-# تخزين مؤقت بسيط في الذاكرة — نرجع آخر بيانات محفوظة فورًا للمستخدم، ونحدّثها
-# بالخلفية بخيط منفصل إذا صارت قديمة، بدل ما نخلي المستخدم ينتظر جلبها من جديد
-# (جلب 15 رمز يحتاج أكثر من دقيقة بسبب حد الـ API، فما نقدر ننتظرها بشكل متزامن).
-_watchlist_cache: dict = {"data": None, "ts": 0, "refreshing": False}
-WATCHLIST_CACHE_TTL = 90  # ثانية
 
 app = FastAPI(title="بوصلة السوق API", version="1.0.0")
 
@@ -45,7 +31,7 @@ ATR_MULT = 2.0
 LB_LEFT, LB_RIGHT = 5, 5
 RANGE_LOWER, RANGE_UPPER = 5, 60
 
-MTF_LIST = ["3m", "5m", "15m"]
+MTF_LIST = ["1m", "3m", "5m", "15m", "30m", "45m", "1h", "75m", "2h", "4h", "1D"]
 
 
 def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
@@ -151,64 +137,6 @@ def mtf_radar(symbol: str = Query(...)):
             state = 0
         entries.append(MTFRadarEntry(timeframe=tf, state=state, label=labels[state]))
     return MTFRadarResult(symbol=symbol, generatedAt=int(time.time()), entries=entries)
-
-
-def _compute_watchlist(symbol_list: list[str]) -> "WatchlistResult":
-    now = int(time.time())
-    quotes = dp.fetch_batch_quotes(symbol_list)
-    entries = []
-    for sym in symbol_list:
-        q = quotes.get(sym)
-        if q is None:
-            entries.append(WatchlistEntry(symbol=sym, price=None, percentChange=None, trend="UNKNOWN"))
-            continue
-        pct = q.get("percent_change")
-        if pct is None:
-            trend = "UNKNOWN"
-        elif pct > 0.05:
-            trend = "UP"
-        elif pct < -0.05:
-            trend = "DOWN"
-        else:
-            trend = "FLAT"
-        entries.append(WatchlistEntry(symbol=sym, price=q.get("price"), percentChange=pct, trend=trend))
-    return WatchlistResult(generatedAt=now, entries=entries)
-
-
-def _refresh_watchlist_cache_background():
-    try:
-        result = _compute_watchlist(DEFAULT_WATCHLIST)
-        _watchlist_cache["data"] = result
-        _watchlist_cache["ts"] = int(time.time())
-    finally:
-        _watchlist_cache["refreshing"] = False
-
-
-@app.get("/api/watchlist", response_model=WatchlistResult)
-def watchlist(symbols: str = Query(None, description="رموز مفصولة بفواصل؛ إن ترك فارغًا تُستخدم القائمة الافتراضية")):
-    now = int(time.time())
-    symbol_list = [s.strip().upper() for s in symbols.split(",")] if symbols else DEFAULT_WATCHLIST
-    use_cache = symbols is None
-
-    if not use_cache:
-        # طلب مخصص برموز محددة من المستخدم — نحسبه مباشرة (بدون كاش مشترك)
-        return _compute_watchlist(symbol_list)
-
-    stale = _watchlist_cache["data"] is None or (now - _watchlist_cache["ts"] >= WATCHLIST_CACHE_TTL)
-
-    # لو ما فيه أي بيانات سابقة أبدًا (أول تشغيل للسيرفر) — لازم ننتظر أول مرة فقط
-    if _watchlist_cache["data"] is None:
-        result = _compute_watchlist(symbol_list)
-        _watchlist_cache["data"] = result
-        _watchlist_cache["ts"] = now
-        return result
-
-    # فيه بيانات سابقة (حتى لو قديمة) — نرجعها فورًا، ونحدّثها بالخلفية إذا صارت قديمة
-    if stale and not _watchlist_cache["refreshing"]:
-        _watchlist_cache["refreshing"] = True
-        threading.Thread(target=_refresh_watchlist_cache_background, daemon=True).start()
-
-    return _watchlist_cache["data"]
 
 
 @app.get("/api/search")
