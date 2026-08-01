@@ -33,5 +33,13 @@ export type AnalysisResult = {
 export type MTFEntry = { timeframe: string; state: number; label: string };
 export type MTFRadarResult = { symbol: string; generatedAt: number; entries: MTFEntry[] };
 
+export type WatchlistEntry = {
+  symbol: string;
+  price: number | null;
+  percentChange: number | null;
+  trend: "UP" | "DOWN" | "FLAT" | "UNKNOWN";
+};
+export type WatchlistResult = { generatedAt: number; entries: WatchlistEntry[] };
+
 export const TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "45m", "1h", "75m", "2h", "4h", "1D"] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];

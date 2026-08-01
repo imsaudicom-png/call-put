@@ -12,8 +12,22 @@ from . import data_provider as dp
 from . import indicators as ind
 from .schemas import (
     AnalysisResult, Candle, LinePoint, PivotPoint, HiddenSignal,
-    MTFRadarResult, MTFRadarEntry,
+    MTFRadarResult, MTFRadarEntry, WatchlistResult, WatchlistEntry,
 )
+
+# قائمة المتابعة الافتراضية (بعد حذف التكرار من قائمة المستخدم)
+DEFAULT_WATCHLIST = [
+    "TSLA", "UNH", "CAT", "NVDA", "AVGO", "META", "MU", "SPY", "QQQ", "ZM",
+    "UPST", "XOM", "UBRE", "SMCO", "SNOW", "SBUX", "PLTR", "PDD", "ORCL", "NFLX",
+    "FDX", "MDTR", "MSFT", "MRNA", "MDB", "MCD", "MA", "LULU", "LLY", "LMT",
+    "IBM", "HD", "GS", "GME", "GE", "FSLR", "DIS", "DIA", "DELL", "DAL",
+    "CVS", "CRWD", "CRM", "ARM", "COST", "COIN", "BA", "AXP", "ASML", "APP",
+    "ANET", "AMZN", "GOOG", "AMD", "AMAT", "ADBE", "AAPL", "CVNA", "MRK", "CVX", "PEP",
+]
+
+# تخزين مؤقت بسيط في الذاكرة لتفادي استهلاك الحصة اليومية من الـ API عند كل تحديث للصفحة
+_watchlist_cache: dict = {"data": None, "ts": 0}
+WATCHLIST_CACHE_TTL = 60  # ثانية
 
 app = FastAPI(title="بوصلة السوق API", version="1.0.0")
 
@@ -137,6 +151,41 @@ def mtf_radar(symbol: str = Query(...)):
             state = 0
         entries.append(MTFRadarEntry(timeframe=tf, state=state, label=labels[state]))
     return MTFRadarResult(symbol=symbol, generatedAt=int(time.time()), entries=entries)
+
+
+@app.get("/api/watchlist", response_model=WatchlistResult)
+def watchlist(symbols: str = Query(None, description="رموز مفصولة بفواصل؛ إن ترك فارغًا تُستخدم القائمة الافتراضية")):
+    now = int(time.time())
+    symbol_list = [s.strip().upper() for s in symbols.split(",")] if symbols else DEFAULT_WATCHLIST
+
+    # استخدام التخزين المؤقت فقط عند طلب القائمة الافتراضية (الأكثر شيوعًا)
+    use_cache = symbols is None
+    if use_cache and _watchlist_cache["data"] is not None and (now - _watchlist_cache["ts"] < WATCHLIST_CACHE_TTL):
+        return _watchlist_cache["data"]
+
+    quotes = dp.fetch_batch_quotes(symbol_list)
+    entries = []
+    for sym in symbol_list:
+        q = quotes.get(sym)
+        if q is None:
+            entries.append(WatchlistEntry(symbol=sym, price=None, percentChange=None, trend="UNKNOWN"))
+            continue
+        pct = q.get("percent_change")
+        if pct is None:
+            trend = "UNKNOWN"
+        elif pct > 0.05:
+            trend = "UP"
+        elif pct < -0.05:
+            trend = "DOWN"
+        else:
+            trend = "FLAT"
+        entries.append(WatchlistEntry(symbol=sym, price=q.get("price"), percentChange=pct, trend=trend))
+
+    result = WatchlistResult(generatedAt=now, entries=entries)
+    if use_cache:
+        _watchlist_cache["data"] = result
+        _watchlist_cache["ts"] = now
+    return result
 
 
 @app.get("/api/search")

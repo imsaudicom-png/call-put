@@ -75,3 +75,15 @@ class MTFRadarResult(BaseModel):
     symbol: str
     generatedAt: int
     entries: list[MTFRadarEntry]
+
+
+class WatchlistEntry(BaseModel):
+    symbol: str
+    price: Optional[float]
+    percentChange: Optional[float]   # نسبة التغير اليومي من مزوّد البيانات
+    trend: Literal["UP", "DOWN", "FLAT", "UNKNOWN"]
+
+
+class WatchlistResult(BaseModel):
+    generatedAt: int
+    entries: list[WatchlistEntry]

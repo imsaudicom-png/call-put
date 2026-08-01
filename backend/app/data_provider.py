@@ -86,6 +86,48 @@ def fetch_ohlcv(symbol: str, timeframe: str, outputsize: int = None) -> pd.DataF
     return df.tail(size)
 
 
+def fetch_batch_quotes(symbols: list[str]) -> dict[str, dict]:
+    """
+    يجلب السعر الحالي ونسبة التغير لعدة رموز بطلب واحد فقط (Twelve Data /quote يدعم رموزًا
+    متعددة مفصولة بفواصل). هذا ضروري لتفادي حد 8 طلبات/دقيقة في الخطة المجانية عند عرض
+    قائمة متابعة كبيرة، بدل عمل طلب منفصل لكل رمز.
+    يُرجع dict: {symbol: {"price": float, "percent_change": float}} — الرموز الفاشلة تُستبعد بصمت.
+    """
+    if not settings.TWELVE_DATA_API_KEY or not symbols:
+        return {}
+
+    result: dict[str, dict] = {}
+    # Twelve Data يحدد حد أقصى معقول لعدد الرموز بالطلب الواحد؛ 60 عادة آمن ضمن حد الرد
+    chunk_size = 60
+    for i in range(0, len(symbols), chunk_size):
+        chunk = symbols[i:i + chunk_size]
+        params = {
+            "symbol": ",".join(chunk),
+            "apikey": settings.TWELVE_DATA_API_KEY,
+        }
+        try:
+            resp = httpx.get(f"{BASE_URL}/quote", params=params, timeout=20)
+            data = resp.json()
+        except httpx.HTTPError:
+            continue
+
+        # عند رمز واحد Twelve Data يُرجع كائن مباشرة، وعند عدة رموز يُرجع dict برموز كمفاتيح
+        if len(chunk) == 1:
+            data = {chunk[0]: data}
+
+        for sym, entry in data.items():
+            if not isinstance(entry, dict) or entry.get("status") == "error":
+                continue
+            try:
+                price = float(entry.get("close")) if entry.get("close") is not None else None
+                pct = float(entry.get("percent_change")) if entry.get("percent_change") is not None else None
+            except (TypeError, ValueError):
+                price, pct = None, None
+            result[sym] = {"price": price, "percent_change": pct}
+
+    return result
+
+
 def search_symbols(query: str) -> list[dict]:
     if not settings.TWELVE_DATA_API_KEY:
         raise HTTPException(500, "مفتاح Twelve Data غير مُهيأ على السيرفر.")
