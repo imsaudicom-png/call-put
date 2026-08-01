@@ -164,6 +164,11 @@ def fetch_batch_quotes(symbols: list[str]) -> dict[str, dict]:
         # لو تجاوزنا الحد رغم كل شي، Twelve Data يرجع كائن خطأ وحيد (status/code/message)
         # بدل dict برموز — نتحقق من هذا صراحة عشان ما نفسره غلط كأنه "رموز فاشلة".
         if isinstance(data, dict) and data.get("status") == "error":
+            msg = str(data.get("message", ""))
+            # الحصة اليومية (لا الدقيقة) خلصت — ما فيه فايدة من الاستمرار بمحاولة باقي
+            # المجموعات، لأنها كلها بترفض فورًا. نوقف على طول بدل ننتظر دقايق بلا داعي.
+            if "for the day" in msg or "run out of API credits for the day" in msg:
+                break
             continue
         if len(chunk) == 1:
             data = {chunk[0]: data}
