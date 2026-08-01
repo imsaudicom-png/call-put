@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import SearchBar from "@/components/SearchBar";
-import WatchlistGrid from "@/components/WatchlistGrid";
 import TrendBadge from "@/components/TrendBadge";
 import ConfidenceMeter from "@/components/ConfidenceMeter";
 import LevelsPanel from "@/components/LevelsPanel";
@@ -48,14 +47,13 @@ export default function Home() {
     <main className="min-h-screen bg-bg px-4 py-6 sm:px-8">
       <header className="mb-6 flex items-center justify-between">
         <div>
+          <div className="text-[11px] tracking-widest text-muted mb-1">sultan_option</div>
           <h1 className="text-xl font-bold text-accentGold">بوصلة السوق</h1>
           <p className="text-xs text-muted">تحليل فوري بمنطق هيكلة السعر والمثلث الديناميكي</p>
         </div>
       </header>
 
       <SearchBar onAnalyze={handleAnalyze} loading={loading} />
-
-      <WatchlistGrid onSelect={handleAnalyze} />
 
       {error && (
         <div className="mt-4 rounded-lg border border-bear/40 bg-bear/10 text-bear text-sm px-4 py-3">
