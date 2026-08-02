@@ -7,6 +7,7 @@ import LevelsPanel from "@/components/LevelsPanel";
 import ReasoningBox from "@/components/ReasoningBox";
 import MTFRadar from "@/components/MTFRadar";
 import ChartView from "@/components/ChartView";
+import CurrentPriceBanner from "@/components/CurrentPriceBanner";
 import { fetchAnalysis, fetchMTFRadar } from "@/lib/api";
 import { AnalysisResult, MTFEntry, Timeframe } from "@/lib/types";
 
@@ -64,6 +65,7 @@ export default function Home() {
       {result && (
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
+            <CurrentPriceBanner result={result} />
             <ChartView result={result} />
           </div>
           <div className="space-y-4">

@@ -40,6 +40,28 @@ export default function ChartView({ result }: { result: AnalysisResult }) {
     const kijunSeries = chart.addLineSeries({ color: "#e91e63", lineWidth: 1, title: "Kijun" });
     kijunSeries.setData(result.ema200.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
 
+    // سحابة الإيشيموكو — Span A (أخضر) / Span B (أحمر)، مزاحة للمستقبل زي الأصل بالضبط.
+    // ملاحظة: التظليل الشفاف بين الخطين (fill) غير مدعوم بمكتبة الرسم الحالية، فعوضناه
+    // بخطين ملوّنين متقطعين — يعطونك نفس معنى السحابة (تقاطع/انفصال الأخضر والأحمر)
+    if (result.spanA.length) {
+      const s = chart.addLineSeries({
+        color: "rgba(38,166,154,0.9)", lineWidth: 1, lineStyle: LineStyle.Dotted, title: "Span A",
+      });
+      s.setData(result.spanA.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    }
+    if (result.spanB.length) {
+      const s = chart.addLineSeries({
+        color: "rgba(239,83,80,0.9)", lineWidth: 1, lineStyle: LineStyle.Dotted, title: "Span B",
+      });
+      s.setData(result.spanB.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    }
+
+    // VWAP
+    if (result.vwapLine.length) {
+      const s = chart.addLineSeries({ color: "#ff9800", lineWidth: 1, title: "VWAP" });
+      s.setData(result.vwapLine.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    }
+
     if (result.resistanceLine.length === 2) {
       const s = chart.addLineSeries({ color: "#f23645", lineWidth: 2 });
       s.setData(result.resistanceLine.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
@@ -49,21 +71,21 @@ export default function ChartView({ result }: { result: AnalysisResult }) {
       s.setData(result.supportLine.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
     }
 
-    const addHLine = (value: number | null, color: string, dashed = true) => {
-      if (value === null) return;
+    const addHLine = (value: number | null | undefined, color: string, title: string, dashed = true) => {
+      if (value === null || value === undefined) return;
       candleSeries.createPriceLine({
         price: value, color, lineWidth: 1,
         lineStyle: dashed ? LineStyle.Dashed : LineStyle.Solid,
-        axisLabelVisible: true,
+        axisLabelVisible: true, title,
       });
     };
-    addHLine(result.midpoint, "#e8b84b");
-    result.bullishTargets?.forEach((t, i) => addHLine(t, "#089981", i === 0));
-    result.bearishTargets?.forEach((t, i) => addHLine(t, "#f23645", i === 0));
-    if (result.hiddenSignal) {
-      addHLine(result.hiddenSignal.target, "#00ff88", true);
-      addHLine(result.hiddenSignal.stop, "#ff3344", true);
-    }
+    addHLine(result.resistance, "#f23645", "🟥 مقاومة رئيسية", false);
+    addHLine(result.support, "#089981", "🟩 دعم رئيسي", false);
+    addHLine(result.midpoint, "#e8b84b", "المنتصف");
+    addHLine(result.target1, "#2962ff", "🎯 هدف 1 (Tenkan)");
+    addHLine(result.target2, "#e91e63", "🎯 هدف 2 (Kijun)");
+    addHLine(result.target3, "#9c27b0", "🎯 هدف الموجة 3");
+    addHLine(result.stopLoss, "#ff3344", "🛑 وقف الخسارة");
 
     chart.timeScale().fitContent();
 

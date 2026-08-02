@@ -28,6 +28,12 @@ export type AnalysisResult = {
   hiddenSignal: HiddenSignal | null;
   signal: "CALL" | "PUT" | "WAIT";
   stopLoss: number | null;
+  spanA: LinePoint[];
+  spanB: LinePoint[];
+  vwapLine: LinePoint[];
+  target1: number | null;
+  target2: number | null;
+  target3: number | null;
   confidenceScore: number;
   reasoning: string[];
 };
