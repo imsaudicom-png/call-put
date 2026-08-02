@@ -458,6 +458,7 @@ def compute_ichimoku_signal(
         "support": round(nearest_support, 4), "resistance": round(nearest_resistance, 4),
         "midpoint": round((nearest_support + nearest_resistance) / 2, 4),
         "tenkan": tenkan, "kijun": kijun, "vwap": vwap,
+        "spanA": span_a, "spanB": span_b, "displacement": displacement,
         "target1": target1, "target2": target2, "target3": target3, "stopLoss": stop_loss,
         "lastPivotHigh": last_pivot_high, "lastPivotLow": last_pivot_low,
     }

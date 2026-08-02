@@ -64,6 +64,13 @@ class AnalysisResult(BaseModel):
     signal: Literal["CALL", "PUT", "WAIT"] = "WAIT"
     stopLoss: Optional[float] = None
 
+    spanA: list[LinePoint] = []
+    spanB: list[LinePoint] = []
+    vwapLine: list[LinePoint] = []
+    target1: Optional[float] = None
+    target2: Optional[float] = None
+    target3: Optional[float] = None
+
     confidenceScore: int  # 0-100
     reasoning: list[str]
 

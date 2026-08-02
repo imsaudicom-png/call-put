@@ -73,6 +73,17 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
             LinePoint(time=int(df.index[-1].timestamp()), value=value),
         ]
 
+    # إزاحة السحابة بصريًا للأمام بالزمن (نفس فكرة offset=displacement في Pine) —
+    # مو إزاحة بالقيم، بل نعرض قيمة كل شمعة قديمة على موضع زمني بالمستقبل
+    interval_seconds = int((df.index[1] - df.index[0]).total_seconds()) if len(df) > 1 else 0
+    shift_seconds = interval_seconds * DISPLACEMENT
+
+    def _shifted_line_points(series) -> list[LinePoint]:
+        pts = []
+        for idx, v in series.dropna().items():
+            pts.append(LinePoint(time=int(idx.timestamp()) + shift_seconds, value=float(v)))
+        return pts
+
     targets_list = [t for t in [sig["target1"], sig["target2"], sig["target3"]] if t is not None]
     bullish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BULLISH" and targets_list else None
     bearish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BEARISH" and targets_list else None
@@ -108,6 +119,10 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
         hiddenSignal=None,
         signal=sig["signal"],
         stopLoss=sig["stopLoss"],
+        spanA=_shifted_line_points(sig["spanA"]),
+        spanB=_shifted_line_points(sig["spanB"]),
+        vwapLine=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in sig["vwap"].dropna().items()],
+        target1=sig["target1"], target2=sig["target2"], target3=sig["target3"],
         confidenceScore=sig["confidenceScore"],
         reasoning=sig["reasoning"],
     )
