@@ -54,7 +54,8 @@ MTF_LIST = ["3m", "5m", "15m"]
 
 def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
     df = dp.fetch_ohlcv(symbol, timeframe)
-    if len(df) < (STRUCTURE_LENGTH * 2 + 5):
+    min_needed = SENKOU_B_LEN + DISPLACEMENT + 5
+    if len(df) < min_needed:
         raise HTTPException(422, "بيانات غير كافية لهذا الرمز/الفريم لإجراء تحليل موثوق.")
 
     sig = ind.compute_ichimoku_signal(
