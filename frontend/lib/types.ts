@@ -6,6 +6,8 @@ export type HiddenSignal = {
   price: number; time: number; target: number; stop: number; midPrice: number;
 };
 
+export type Marker = { time: number; price: number; text: string; color: string; above: boolean };
+
 export type AnalysisResult = {
   symbol: string;
   timeframe: string;
@@ -41,6 +43,7 @@ export type AnalysisResult = {
   ema100: LinePoint[];
   ema380: LinePoint[];
   midLine: LinePoint[];
+  markers: Marker[];
 };
 
 export type MTFEntry = { timeframe: string; state: number; label: string };

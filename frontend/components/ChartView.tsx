@@ -88,6 +88,21 @@ export default function ChartView({ result }: { result: AnalysisResult }) {
     addHLine(result.support, "#ff5252", "القاع", false);
     addHLine(result.midpoint, "#ffffff", "المنتصف");
 
+    // ملصقات إشارات التقاطع (صعود/هبوط، ذهبي/موت، مؤكدة) — تماما زي الأصل على TradingView
+    if (result.markers.length) {
+      candleSeries.setMarkers(
+        [...result.markers]
+          .sort((a, b) => a.time - b.time)
+          .map((m) => ({
+            time: m.time as UTCTimestamp,
+            position: m.above ? "aboveBar" : "belowBar",
+            color: m.color,
+            shape: m.above ? "arrowDown" : "arrowUp",
+            text: m.text,
+          }))
+      );
+    }
+
     chart.timeScale().fitContent();
 
     const onResize = () => chart.applyOptions({ width: containerRef.current?.clientWidth ?? 0 });

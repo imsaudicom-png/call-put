@@ -500,6 +500,29 @@ def compute_ema_structure_signal(
 
     structure_state = 1 if trend == "BULLISH" else -1
 
+    # ==================== ملصقات الإشارات على الشارت (خام + مؤكدة) — تطابق الملصقات بالأصل ====================
+    markers = []
+    atr14 = wilder_atr(df["high"], df["low"], df["close"], 14)
+
+    def _add_marker(mask: pd.Series, text: str, color: str, above: bool, atr_mult: float):
+        idxs = mask[mask].index
+        for t in idxs:
+            atr_v = atr14.loc[t]
+            if pd.isna(atr_v):
+                continue
+            price = float(df.loc[t, "high"] + atr_v * atr_mult) if above else \
+                float(df.loc[t, "low"] - atr_v * atr_mult)
+            markers.append({"time": t, "price": price, "text": text, "color": color, "above": above})
+
+    _add_marker(cross_up_fast, "▲ صعود", "#26a69a", False, 0.5)
+    _add_marker(cross_dn_fast, "▼ هبوط", "#ef5350", True, 0.5)
+    _add_marker(cross_up_slow, "★ Golden Cross", "#FFD700", False, 1.2)
+    _add_marker(cross_dn_slow, "✖ Death Cross", "#ef5350", True, 1.2)
+    _add_marker(conf_fast["confirmed_up"], "✅ شراء", "#26a69a", False, 0.8)
+    _add_marker(conf_fast["confirmed_dn"], "✅ بيع", "#ef5350", True, 0.8)
+    _add_marker(conf_slow["confirmed_up"], "✅ شراء (ذهبي)", "#FFD700", False, 1.6)
+    _add_marker(conf_slow["confirmed_dn"], "✅ بيع (موت)", "#ef5350", True, 1.6)
+
     return {
         "trend": trend, "trendStrength": strength, "structureState": structure_state,
         "confidenceScore": confidence, "reasoning": reasoning, "signal": signal,
@@ -508,6 +531,7 @@ def compute_ema_structure_signal(
         "lastPivotHigh": {"price": top_now, "time": last_top.dropna().index[-1]} if top_now is not None and len(last_top.dropna()) else None,
         "lastPivotLow": {"price": bot_now, "time": last_bot.dropna().index[-1]} if bot_now is not None and len(last_bot.dropna()) else None,
         "emas": emas, "lastTop": last_top, "lastBot": last_bot, "midLine": mid_price,
+        "markers": markers,
     }
 
 

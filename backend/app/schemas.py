@@ -33,6 +33,14 @@ class HiddenSignal(BaseModel):
     midPrice: float
 
 
+class Marker(BaseModel):
+    time: int
+    price: float
+    text: str
+    color: str
+    above: bool
+
+
 class AnalysisResult(BaseModel):
     symbol: str
     timeframe: str
@@ -76,6 +84,7 @@ class AnalysisResult(BaseModel):
     ema100: list[LinePoint] = []
     ema380: list[LinePoint] = []
     midLine: list[LinePoint] = []
+    markers: list[Marker] = []
 
     confidenceScore: int  # 0-100
     reasoning: list[str]

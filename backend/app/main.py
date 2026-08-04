@@ -12,7 +12,7 @@ from .config import settings
 from . import data_provider as dp
 from . import indicators as ind
 from .schemas import (
-    AnalysisResult, Candle, LinePoint, PivotPoint, HiddenSignal,
+    AnalysisResult, Candle, LinePoint, PivotPoint, HiddenSignal, Marker,
     MTFRadarResult, MTFRadarEntry, WatchlistResult, WatchlistEntry,
 )
 
@@ -58,6 +58,21 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
     def _line(series) -> list[LinePoint]:
         return [LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in series.dropna().items()]
 
+    # خط أفقي قصير عند آخر قيمة (يطابق draw_straight_ema بالأصل: يمتد 50 شمعة للخلف و15 للأمام)
+    interval_seconds = int((df.index[1] - df.index[0]).total_seconds()) if len(df) > 1 else 0
+    LOOKBACK_BACK, EXTEND_RIGHT = 50, 15
+
+    def _flat_line(series) -> list[LinePoint]:
+        clean = series.dropna()
+        if clean.empty:
+            return []
+        val = float(clean.iloc[-1])
+        last_t = int(df.index[-1].timestamp())
+        return [
+            LinePoint(time=max(int(df.index[0].timestamp()), last_t - interval_seconds * LOOKBACK_BACK), value=val),
+            LinePoint(time=last_t + interval_seconds * EXTEND_RIGHT, value=val),
+        ]
+
     def _hline_points(value: float | None) -> list[LinePoint]:
         if value is None or len(df) < 2:
             return []
@@ -79,9 +94,9 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
                    low=r["low"], close=r["close"], volume=r["volume"])
             for idx, r in df.iterrows()
         ],
-        ema9=_line(sig["emas"][9]), ema26=_line(sig["emas"][26]),
-        ema50=_line(sig["emas"][50]), ema100=_line(sig["emas"][100]),
-        ema200=_line(sig["emas"][200]), ema380=_line(sig["emas"][380]),
+        ema9=_flat_line(sig["emas"][9]), ema26=_flat_line(sig["emas"][26]),
+        ema50=_flat_line(sig["emas"][50]), ema100=_flat_line(sig["emas"][100]),
+        ema200=_flat_line(sig["emas"][200]), ema380=_flat_line(sig["emas"][380]),
         midLine=_line(sig["midLine"]),
         trend=sig["trend"],
         trendStrength=sig["trendStrength"],
@@ -106,6 +121,11 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
         target1=sig["target1"], target2=sig["target2"], target3=None,
         confidenceScore=sig["confidenceScore"],
         reasoning=sig["reasoning"],
+        markers=[
+            Marker(time=int(m["time"].timestamp()), price=m["price"], text=m["text"],
+                   color=m["color"], above=m["above"])
+            for m in sig["markers"]
+        ],
     )
 
 
