@@ -20,7 +20,7 @@ class Settings:
     }
 
     # عدد الشموع التي تُجلب افتراضيًا لكل تحليل (كافٍ لحساب EMA200 + Pivot بدقة)
-    DEFAULT_CANDLE_COUNT: int = 300
+    DEFAULT_CANDLE_COUNT: int = 400
 
 
 settings = Settings()

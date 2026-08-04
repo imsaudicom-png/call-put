@@ -47,7 +47,7 @@ MTF_LIST = ["3m", "5m", "15m"]
 
 def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
     df = dp.fetch_ohlcv(symbol, timeframe)
-    min_needed = max(ind.EMA_PERIODS) + 5
+    min_needed = 60
     if len(df) < min_needed:
         raise HTTPException(422, "بيانات غير كافية لهذا الرمز/الفريم لإجراء تحليل موثوق.")
 
