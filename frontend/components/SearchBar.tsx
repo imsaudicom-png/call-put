@@ -8,7 +8,7 @@ export default function SearchBar({
   onAnalyze: (symbol: string, timeframe: Timeframe) => void;
   loading: boolean;
 }) {
-  const [symbol, setSymbol] = useState("BTC/USD");
+  const [symbol, setSymbol] = useState("SPY");
   const [timeframe, setTimeframe] = useState<Timeframe>("5m");
 
   return (
