@@ -1,13 +1,16 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  createChart, ColorType, IChartApi, ISeriesApi, LineStyle, UTCTimestamp,
+  createChart, ColorType, IChartApi, LineStyle, UTCTimestamp,
 } from "lightweight-charts";
 import type { AnalysisResult } from "@/lib/types";
+
+type Badge = { left: number; top: number; text: string; color: string; above: boolean };
 
 export default function ChartView({ result }: { result: AnalysisResult }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const [badges, setBadges] = useState<Badge[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -92,30 +95,55 @@ export default function ChartView({ result }: { result: AnalysisResult }) {
     addHLine(result.support, "#ff5252", "القاع", false);
     addHLine(result.midpoint, "#ffffff", "المنتصف");
 
-    // ملصقات إشارات التقاطع (صعود/هبوط، ذهبي/موت، مؤكدة) — تماما زي الأصل على TradingView
-    if (result.markers.length) {
-      candleSeries.setMarkers(
-        [...result.markers]
-          .sort((a, b) => a.time - b.time)
-          .map((m) => ({
-            time: m.time as UTCTimestamp,
-            position: m.above ? "aboveBar" : "belowBar",
-            color: m.color,
-            shape: m.above ? "arrowDown" : "arrowUp",
-            text: m.text,
-          }))
-      );
-    }
+    // ملصقات إشارات التقاطع كصناديق ملوّنة (Badges) فوق الشارت — نحسب مواضعها يدويًا
+    // لأن مكتبة الرسم ما تدعم خلفية ملوّنة خلف نص الملصق الافتراضي
+    const recomputeBadges = () => {
+      const next: Badge[] = [];
+      for (const m of result.markers) {
+        const x = chart.timeScale().timeToCoordinate(m.time as UTCTimestamp);
+        const y = candleSeries.priceToCoordinate(m.price);
+        if (x === null || y === null) continue;
+        next.push({ left: x, top: y, text: m.text, color: m.color, above: m.above });
+      }
+      setBadges(next);
+    };
 
+    chart.timeScale().subscribeVisibleLogicalRangeChange(recomputeBadges);
     chart.timeScale().fitContent();
+    recomputeBadges();
 
-    const onResize = () => chart.applyOptions({ width: containerRef.current?.clientWidth ?? 0 });
+    const onResize = () => {
+      chart.applyOptions({ width: containerRef.current?.clientWidth ?? 0 });
+      recomputeBadges();
+    };
     window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("resize", onResize);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(recomputeBadges);
       chart.remove();
     };
   }, [result]);
 
-  return <div ref={containerRef} className="rounded-xl overflow-hidden border border-panelBorder" />;
+  return (
+    <div className="relative rounded-xl overflow-hidden border border-panelBorder">
+      <div ref={containerRef} />
+      <div className="absolute inset-0 pointer-events-none">
+        {badges.map((b, i) => (
+          <div
+            key={i}
+            className="absolute font-bold whitespace-nowrap px-2 py-0.5 rounded text-xs"
+            style={{
+              left: b.left,
+              top: b.above ? b.top - 22 : b.top + 8,
+              transform: "translateX(-50%)",
+              backgroundColor: b.color,
+              color: "#0a0d12",
+            }}
+          >
+            {b.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
