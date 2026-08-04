@@ -523,6 +523,10 @@ def compute_ema_structure_signal(
     _add_marker(conf_slow["confirmed_up"], "✅ شراء (ذهبي)", "#FFD700", False, 1.6)
     _add_marker(conf_slow["confirmed_dn"], "✅ بيع (موت)", "#ef5350", True, 1.6)
 
+    # الاحتفاظ بآخر إشارتين فقط (الأحدث زمنيًا) على الشارت — بناءً على طلب العميل
+    markers.sort(key=lambda m: m["time"])
+    markers = markers[-2:]
+
     return {
         "trend": trend, "trendStrength": strength, "structureState": structure_state,
         "confidenceScore": confidence, "reasoning": reasoning, "signal": signal,

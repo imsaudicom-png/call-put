@@ -81,6 +81,16 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
             LinePoint(time=int(df.index[-1].timestamp()), value=value),
         ]
 
+    EXTEND_PIVOTS = 30
+
+    def _flat_from_scalar(value: float | None, lookback: int = LOOKBACK_BACK, extend: int = EXTEND_PIVOTS) -> list[LinePoint]:
+        """خط قصير حول السعر الحالي (زي mid_line/top_line/bot_line بالأصل) بدل خط يمتد كل التاريخ."""
+        if value is None or len(df) < 2:
+            return []
+        last_t = int(df.index[-1].timestamp())
+        start_t = max(int(df.index[0].timestamp()), last_t - interval_seconds * lookback)
+        return [LinePoint(time=start_t, value=value), LinePoint(time=last_t + interval_seconds * extend, value=value)]
+
     targets_list = [t for t in [sig["target1"], sig["target2"]] if t is not None]
     bullish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BULLISH" and targets_list else None
     bearish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BEARISH" and targets_list else None
@@ -97,12 +107,12 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
         ema9=_flat_line(sig["emas"][9]), ema26=_flat_line(sig["emas"][26]),
         ema50=_flat_line(sig["emas"][50]), ema100=_flat_line(sig["emas"][100]),
         ema200=_flat_line(sig["emas"][200]), ema380=_flat_line(sig["emas"][380]),
-        midLine=_line(sig["midLine"]),
+        midLine=_flat_from_scalar(sig["midpoint"]),
         trend=sig["trend"],
         trendStrength=sig["trendStrength"],
         structureState=sig["structureState"],
-        resistanceLine=_hline_points(sig["resistance"]),
-        supportLine=_hline_points(sig["support"]),
+        resistanceLine=_flat_from_scalar(sig["resistance"]),
+        supportLine=_flat_from_scalar(sig["support"]),
         support=sig["support"],
         resistance=sig["resistance"],
         midpoint=sig["midpoint"],
