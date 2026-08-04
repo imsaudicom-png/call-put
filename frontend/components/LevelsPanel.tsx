@@ -23,18 +23,17 @@ export default function LevelsPanel({ result }: { result: AnalysisResult }) {
   const signalText = result.signal === "CALL" ? "▲ CALL" : result.signal === "PUT" ? "▼ PUT" : "انتظار";
   return (
     <div className="rounded-xl border border-panelBorder bg-panel p-5">
-      <div className="text-sm text-muted mb-2 font-semibold">الإشارة الحالية (إيشيموكو)</div>
+      <div className="text-sm text-muted mb-2 font-semibold">الإشارة الحالية (تقاطع EMA مؤكد)</div>
       <Row label="الإشارة" value={signalText} color={signalColor} />
-      <Row label="وقف الخسارة" value={fmt(result.stopLoss)} color="#f23645" />
 
       <div className="text-sm text-muted mt-4 mb-2 font-semibold">المستويات الرئيسية</div>
-      <Row label="المقاومة" value={fmt(result.resistance)} color="#f23645" />
-      <Row label="الدعم" value={fmt(result.support)} color="#089981" />
-      <Row label="المنتصف السعري" value={fmt(result.midpoint)} color="#e8b84b" />
+      <Row label="القمة" value={fmt(result.resistance)} color="#00e5ff" />
+      <Row label="القاع" value={fmt(result.support)} color="#ff5252" />
+      <Row label="المنتصف السعري" value={fmt(result.midpoint)} color="#ffffff" />
       <Row label="آخر قمة" value={`${fmt(result.lastPivotHigh?.price)} (${fmtTime(result.lastPivotHigh?.time)})`} />
       <Row label="آخر قاع" value={`${fmt(result.lastPivotLow?.price)} (${fmtTime(result.lastPivotLow?.time)})`} />
 
-      <div className="text-sm text-muted mt-4 mb-2 font-semibold">أهداف الإيشيموكو (Tenkan / Kijun / السحابة)</div>
+      <div className="text-sm text-muted mt-4 mb-2 font-semibold">مستويات الأهداف (EMA / القمة-القاع)</div>
       <Row
         label="أهداف صاعدة"
         value={result.bullishTargets ? result.bullishTargets.map(fmt).join(" / ") : "لا يوجد حاليًا"}

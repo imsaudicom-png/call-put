@@ -36,6 +36,11 @@ export type AnalysisResult = {
   target3: number | null;
   confidenceScore: number;
   reasoning: string[];
+  ema9: LinePoint[];
+  ema26: LinePoint[];
+  ema100: LinePoint[];
+  ema380: LinePoint[];
+  midLine: LinePoint[];
 };
 
 export type MTFEntry = { timeframe: string; state: number; label: string };

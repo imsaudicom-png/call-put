@@ -71,6 +71,12 @@ class AnalysisResult(BaseModel):
     target2: Optional[float] = None
     target3: Optional[float] = None
 
+    ema9: list[LinePoint] = []
+    ema26: list[LinePoint] = []
+    ema100: list[LinePoint] = []
+    ema380: list[LinePoint] = []
+    midLine: list[LinePoint] = []
+
     confidenceScore: int  # 0-100
     reasoning: list[str]
 

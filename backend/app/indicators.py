@@ -341,6 +341,176 @@ def support_resistance_from_pivots(df: pd.DataFrame, sr_len: int = 50, sr_streng
     return float(nearest_support), float(nearest_resistance)
 
 
+# ==================== محرك جديد: نظام EMA المتعدد + رصد قمم/قيعان (استبدال الإيشيموكو) ====================
+# ترجمة حرفية لمؤشر "المطور V02" من Pine Script (بدون جداول الفريمات المتعددة، بدون جداول القراءة).
+
+EMA_PERIODS = (9, 26, 50, 100, 200, 380)
+
+
+def crossover(a: pd.Series, b: pd.Series) -> pd.Series:
+    return (a > b) & (a.shift(1) <= b.shift(1))
+
+
+def crossunder(a: pd.Series, b: pd.Series) -> pd.Series:
+    return (a < b) & (a.shift(1) >= b.shift(1))
+
+
+def confirm_signal(cross_up: pd.Series, cross_dn: pd.Series, close: pd.Series,
+                    high: pd.Series, low: pd.Series, max_bars: int = 10) -> dict:
+    """
+    ترجمة حرفية لدالة confirmSignal() في Pine — تأكيد الإشارة الخام بشمعتين متتاليتين
+    تُغلقان فوق قمة شمعة الإشارة (للشراء) أو تحت قاع شمعة الإشارة (للبيع).
+    آلة حالة تسلسلية (var) — يجب تشغيلها بار ببار مثل الأصل تمامًا.
+    """
+    n = len(close)
+    cu, cd = cross_up.values, cross_dn.values
+    c, h, l = close.values, high.values, low.values
+
+    await_up = await_dn = False
+    c_high = c_low = np.nan
+    c_bar = None
+    streak = 0
+
+    confirmed_up = np.zeros(n, dtype=bool)
+    confirmed_dn = np.zeros(n, dtype=bool)
+    awaiting_up = np.zeros(n, dtype=bool)
+    awaiting_dn = np.zeros(n, dtype=bool)
+    bars_waited = np.zeros(n, dtype=int)
+
+    for i in range(n):
+        if cu[i]:
+            await_up, await_dn, c_high, c_bar, streak = True, False, h[i], i, 0
+        if cd[i]:
+            await_dn, await_up, c_low, c_bar, streak = True, False, l[i], i, 0
+
+        if await_up and not cu[i]:
+            if c[i] > c_high:
+                streak += 1
+                if streak >= 2:
+                    confirmed_up[i] = True
+                    await_up, streak = False, 0
+            else:
+                streak = 0
+            if await_up and c_bar is not None and (i - c_bar) >= max_bars:
+                await_up, streak = False, 0
+
+        if await_dn and not cd[i]:
+            if c[i] < c_low:
+                streak += 1
+                if streak >= 2:
+                    confirmed_dn[i] = True
+                    await_dn, streak = False, 0
+            else:
+                streak = 0
+            if await_dn and c_bar is not None and (i - c_bar) >= max_bars:
+                await_dn, streak = False, 0
+
+        awaiting_up[i], awaiting_dn[i] = await_up, await_dn
+        bars_waited[i] = 0 if c_bar is None else i - c_bar
+
+    idx = close.index
+    return {
+        "confirmed_up": pd.Series(confirmed_up, index=idx),
+        "confirmed_dn": pd.Series(confirmed_dn, index=idx),
+        "awaiting_up": pd.Series(awaiting_up, index=idx),
+        "awaiting_dn": pd.Series(awaiting_dn, index=idx),
+        "bars_waited": pd.Series(bars_waited, index=idx),
+    }
+
+
+def compute_ema_structure_signal(
+    df: pd.DataFrame,
+    pivot_left: int = 10, pivot_right: int = 5, max_confirm_bars: int = 10,
+) -> dict:
+    """
+    يطابق منطق "المطور V02": 6 EMA (9/26/50/100/200/380)، قمة/قاع + منطقة منتصف،
+    تقاطع سريع (9/26) وتقاطع ذهبي/موت (50/200) — كلاهما بتأكيد شمعتين متتاليتين.
+    بدون جداول فريمات متعددة وبدون عرض أرقام المتوسطات كنص (بناءً على طلب العميل).
+    """
+    close, high, low = df["close"], df["high"], df["low"]
+    emas = {p: ema(close, p) for p in EMA_PERIODS}
+
+    ph = pivot_high(high, pivot_left, pivot_right)
+    pl = pivot_low(low, pivot_left, pivot_right)
+    last_top = ph.ffill()
+    last_bot = pl.ffill()
+    mid_price = (last_top + last_bot) / 2
+
+    cross_up_fast = crossover(emas[9], emas[26])
+    cross_dn_fast = crossunder(emas[9], emas[26])
+    cross_up_slow = crossover(emas[50], emas[200])
+    cross_dn_slow = crossunder(emas[50], emas[200])
+
+    conf_fast = confirm_signal(cross_up_fast, cross_dn_fast, close, high, low, max_confirm_bars)
+    conf_slow = confirm_signal(cross_up_slow, cross_dn_slow, close, high, low, max_confirm_bars)
+
+    close_now = float(close.iloc[-1])
+    ema_now = {p: float(emas[p].iloc[-1]) for p in EMA_PERIODS}
+    top_now = float(last_top.iloc[-1]) if not pd.isna(last_top.iloc[-1]) else None
+    bot_now = float(last_bot.iloc[-1]) if not pd.isna(last_bot.iloc[-1]) else None
+    mid_now = float(mid_price.iloc[-1]) if not pd.isna(mid_price.iloc[-1]) else None
+
+    # سلّم الاتجاه (نفس منطق advice/current_floor/next_target في الأصل)
+    ladder = sorted(EMA_PERIODS)
+    above_count = sum(1 for p in ladder if close_now >= ema_now[p])
+    floor_val, target_val = bot_now, ema_now[9]
+    for i, p in enumerate(ladder):
+        if close_now >= ema_now[p]:
+            floor_val = ema_now[p]
+            target_val = top_now if p == ladder[-1] else ema_now[ladder[i + 1]]
+
+    trend = "BULLISH" if close_now >= ema_now[26] else "BEARISH"
+    strength = "STRONG" if above_count >= 5 or above_count <= 1 else "MODERATE" if above_count >= 4 or above_count <= 2 else "WEAK"
+    confidence = round((above_count / 6) * 100) if trend == "BULLISH" else round(((6 - above_count) / 6) * 100)
+    confidence = max(0, min(100, confidence))
+
+    # آخر إشارة (الأحدث بين التقاطع السريع والبطيء المؤكدين، بحد أقصى 3 شمعات رجوعًا)
+    signal = "WAIT"
+    reasoning = []
+    look_back = min(3, len(df))
+    tail = slice(len(df) - look_back, len(df))
+    if conf_slow["confirmed_up"].iloc[tail].any():
+        signal = "CALL"
+        reasoning.append("تأكد تقاطع ذهبي (EMA50 فوق EMA200) بشمعتين متتاليتين — إشارة صعود قوية.")
+    elif conf_slow["confirmed_dn"].iloc[tail].any():
+        signal = "PUT"
+        reasoning.append("تأكد تقاطع موت (EMA50 تحت EMA200) بشمعتين متتاليتين — إشارة هبوط قوية.")
+    elif conf_fast["confirmed_up"].iloc[tail].any():
+        signal = "CALL"
+        reasoning.append("تأكد تقاطع صعود سريع (EMA9 فوق EMA26) بشمعتين متتاليتين.")
+    elif conf_fast["confirmed_dn"].iloc[tail].any():
+        signal = "PUT"
+        reasoning.append("تأكد تقاطع هبوط سريع (EMA9 تحت EMA26) بشمعتين متتاليتين.")
+    elif bool(conf_fast["awaiting_up"].iloc[-1]):
+        reasoning.append(f"بانتظار تأكيد إشارة صعود سريع منذ {int(conf_fast['bars_waited'].iloc[-1])} شمعة.")
+    elif bool(conf_fast["awaiting_dn"].iloc[-1]):
+        reasoning.append(f"بانتظار تأكيد إشارة هبوط سريع منذ {int(conf_fast['bars_waited'].iloc[-1])} شمعة.")
+    elif bool(conf_slow["awaiting_up"].iloc[-1]):
+        reasoning.append(f"بانتظار تأكيد تقاطع ذهبي منذ {int(conf_slow['bars_waited'].iloc[-1])} شمعة.")
+    elif bool(conf_slow["awaiting_dn"].iloc[-1]):
+        reasoning.append(f"بانتظار تأكيد تقاطع موت منذ {int(conf_slow['bars_waited'].iloc[-1])} شمعة.")
+    else:
+        reasoning.append("لا توجد إشارة تقاطع جديدة حاليًا — النظام في وضع المراقبة.")
+
+    reasoning.append(f"السعر أعلى من {above_count} من أصل 6 متوسطات متحركة (EMA9→EMA380).")
+    if trend == "BULLISH":
+        reasoning.append(f"القرار: صاعد — الإغلاق فوق {floor_val:.4f} يستهدف {target_val:.4f}.")
+    else:
+        reasoning.append(f"القرار: سلبي — الإغلاق يستهدف {target_val:.4f} كمستوى أدنى.")
+
+    structure_state = 1 if trend == "BULLISH" else -1
+
+    return {
+        "trend": trend, "trendStrength": strength, "structureState": structure_state,
+        "confidenceScore": confidence, "reasoning": reasoning, "signal": signal,
+        "support": bot_now, "resistance": top_now, "midpoint": mid_now,
+        "target1": target_val, "target2": (top_now if trend == "BULLISH" else bot_now),
+        "lastPivotHigh": {"price": top_now, "time": last_top.dropna().index[-1]} if top_now is not None and len(last_top.dropna()) else None,
+        "lastPivotLow": {"price": bot_now, "time": last_bot.dropna().index[-1]} if bot_now is not None and len(last_bot.dropna()) else None,
+        "emas": emas, "lastTop": last_top, "lastBot": last_bot, "midLine": mid_price,
+    }
+
+
 def compute_ichimoku_signal(
     df: pd.DataFrame,
     tenkan_len: int = 9, kijun_len: int = 26, senkou_b_len: int = 52, displacement: int = 26,

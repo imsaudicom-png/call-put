@@ -38,32 +38,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TENKAN_LEN = 9
-KIJUN_LEN = 26
-SENKOU_B_LEN = 52
-DISPLACEMENT = 26
-SR_LEN = 50
-SR_STRENGTH = 3
-RANGE_LEN = 20
-VOL_LEN = 20
-OBV_LEN = 10
-VOL_RATIO_THRESHOLD = 1.2
+PIVOT_LEFT = 10
+PIVOT_RIGHT = 5
+MAX_CONFIRM_BARS = 10
 
 MTF_LIST = ["3m", "5m", "15m"]
 
 
 def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
     df = dp.fetch_ohlcv(symbol, timeframe)
-    min_needed = SENKOU_B_LEN + DISPLACEMENT + 5
+    min_needed = max(ind.EMA_PERIODS) + 5
     if len(df) < min_needed:
         raise HTTPException(422, "بيانات غير كافية لهذا الرمز/الفريم لإجراء تحليل موثوق.")
 
-    sig = ind.compute_ichimoku_signal(
-        df,
-        tenkan_len=TENKAN_LEN, kijun_len=KIJUN_LEN, senkou_b_len=SENKOU_B_LEN, displacement=DISPLACEMENT,
-        sr_len=SR_LEN, sr_strength=SR_STRENGTH, range_len=RANGE_LEN,
-        vol_len=VOL_LEN, obv_len=OBV_LEN, vol_ratio_threshold=VOL_RATIO_THRESHOLD,
+    sig = ind.compute_ema_structure_signal(
+        df, pivot_left=PIVOT_LEFT, pivot_right=PIVOT_RIGHT, max_confirm_bars=MAX_CONFIRM_BARS,
     )
+
+    def _line(series) -> list[LinePoint]:
+        return [LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in series.dropna().items()]
 
     def _hline_points(value: float | None) -> list[LinePoint]:
         if value is None or len(df) < 2:
@@ -73,18 +66,7 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
             LinePoint(time=int(df.index[-1].timestamp()), value=value),
         ]
 
-    # إزاحة السحابة بصريًا للأمام بالزمن (نفس فكرة offset=displacement في Pine) —
-    # مو إزاحة بالقيم، بل نعرض قيمة كل شمعة قديمة على موضع زمني بالمستقبل
-    interval_seconds = int((df.index[1] - df.index[0]).total_seconds()) if len(df) > 1 else 0
-    shift_seconds = interval_seconds * DISPLACEMENT
-
-    def _shifted_line_points(series) -> list[LinePoint]:
-        pts = []
-        for idx, v in series.dropna().items():
-            pts.append(LinePoint(time=int(idx.timestamp()) + shift_seconds, value=float(v)))
-        return pts
-
-    targets_list = [t for t in [sig["target1"], sig["target2"], sig["target3"]] if t is not None]
+    targets_list = [t for t in [sig["target1"], sig["target2"]] if t is not None]
     bullish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BULLISH" and targets_list else None
     bearish_targets = [round(t, 4) for t in targets_list] if sig["trend"] == "BEARISH" and targets_list else None
 
@@ -97,9 +79,10 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
                    low=r["low"], close=r["close"], volume=r["volume"])
             for idx, r in df.iterrows()
         ],
-        # هذين الحقلين كانا EMA50/200، صاروا يمثلوا Tenkan/Kijun (خطوط الإيشيموكو الأساسية)
-        ema50=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in sig["tenkan"].dropna().items()],
-        ema200=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in sig["kijun"].dropna().items()],
+        ema9=_line(sig["emas"][9]), ema26=_line(sig["emas"][26]),
+        ema50=_line(sig["emas"][50]), ema100=_line(sig["emas"][100]),
+        ema200=_line(sig["emas"][200]), ema380=_line(sig["emas"][380]),
+        midLine=_line(sig["midLine"]),
         trend=sig["trend"],
         trendStrength=sig["trendStrength"],
         structureState=sig["structureState"],
@@ -118,11 +101,9 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
         bearishTargets=bearish_targets,
         hiddenSignal=None,
         signal=sig["signal"],
-        stopLoss=sig["stopLoss"],
-        spanA=_shifted_line_points(sig["spanA"]),
-        spanB=_shifted_line_points(sig["spanB"]),
-        vwapLine=[LinePoint(time=int(idx.timestamp()), value=float(v)) for idx, v in sig["vwap"].dropna().items()],
-        target1=sig["target1"], target2=sig["target2"], target3=sig["target3"],
+        stopLoss=None,
+        spanA=[], spanB=[], vwapLine=[],
+        target1=sig["target1"], target2=sig["target2"], target3=None,
         confidenceScore=sig["confidenceScore"],
         reasoning=sig["reasoning"],
     )
@@ -149,11 +130,8 @@ def mtf_radar(symbol: str = Query(...)):
     for tf in MTF_LIST:
         try:
             df = dp.fetch_ohlcv(symbol.strip().upper(), tf)
-            sig = ind.compute_ichimoku_signal(
-                df, tenkan_len=TENKAN_LEN, kijun_len=KIJUN_LEN, senkou_b_len=SENKOU_B_LEN,
-                displacement=DISPLACEMENT, sr_len=SR_LEN, sr_strength=SR_STRENGTH,
-                range_len=RANGE_LEN, vol_len=VOL_LEN, obv_len=OBV_LEN,
-                vol_ratio_threshold=VOL_RATIO_THRESHOLD,
+            sig = ind.compute_ema_structure_signal(
+                df, pivot_left=PIVOT_LEFT, pivot_right=PIVOT_RIGHT, max_confirm_bars=MAX_CONFIRM_BARS,
             )
             state = sig["structureState"]
         except Exception:

@@ -5,17 +5,14 @@ import TrendBadge from "@/components/TrendBadge";
 import ConfidenceMeter from "@/components/ConfidenceMeter";
 import LevelsPanel from "@/components/LevelsPanel";
 import ReasoningBox from "@/components/ReasoningBox";
-import MTFRadar from "@/components/MTFRadar";
 import ChartView from "@/components/ChartView";
 import CurrentPriceBanner from "@/components/CurrentPriceBanner";
-import { fetchAnalysis, fetchMTFRadar } from "@/lib/api";
-import { AnalysisResult, MTFEntry, Timeframe } from "@/lib/types";
+import { fetchAnalysis } from "@/lib/api";
+import { AnalysisResult, Timeframe } from "@/lib/types";
 
 export default function Home() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [mtf, setMtf] = useState<MTFEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [mtfLoading, setMtfLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleAnalyze(symbolRaw: string, timeframe: Timeframe) {
@@ -31,16 +28,6 @@ export default function Home() {
       setResult(null);
     } finally {
       setLoading(false);
-    }
-
-    setMtfLoading(true);
-    try {
-      const radar = await fetchMTFRadar(symbol);
-      setMtf(radar.entries);
-    } catch {
-      setMtf([]);
-    } finally {
-      setMtfLoading(false);
     }
   }
 
@@ -73,7 +60,6 @@ export default function Home() {
             <ConfidenceMeter score={result.confidenceScore} />
             <LevelsPanel result={result} />
             <ReasoningBox reasoning={result.reasoning} />
-            <MTFRadar entries={mtf} loading={mtfLoading} />
           </div>
         </div>
       )}
