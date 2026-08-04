@@ -44,6 +44,7 @@ export type AnalysisResult = {
   ema380: LinePoint[];
   midLine: LinePoint[];
   markers: Marker[];
+  advice: string | null;
 };
 
 export type MTFEntry = { timeframe: string; state: number; label: string };

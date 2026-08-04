@@ -85,6 +85,7 @@ class AnalysisResult(BaseModel):
     ema380: list[LinePoint] = []
     midLine: list[LinePoint] = []
     markers: list[Marker] = []
+    advice: Optional[str] = None
 
     confidenceScore: int  # 0-100
     reasoning: list[str]

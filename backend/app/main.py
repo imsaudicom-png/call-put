@@ -136,6 +136,7 @@ def _build_analysis(symbol: str, timeframe: str) -> AnalysisResult:
                    color=m["color"], above=m["above"])
             for m in sig["markers"]
         ],
+        advice=sig["advice"],
     )
 
 

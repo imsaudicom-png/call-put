@@ -494,9 +494,10 @@ def compute_ema_structure_signal(
 
     reasoning.append(f"السعر أعلى من {above_count} من أصل 6 متوسطات متحركة (EMA9→EMA380).")
     if trend == "BULLISH":
-        reasoning.append(f"القرار: صاعد — الإغلاق فوق {floor_val:.4f} يستهدف {target_val:.4f}.")
+        advice = f"القرار: صاعد — الإغلاق فوق {floor_val:.4f} يستهدف {target_val:.4f}."
     else:
-        reasoning.append(f"القرار: سلبي — الإغلاق يستهدف {target_val:.4f} كمستوى أدنى.")
+        advice = f"القرار: سلبي — الإغلاق يستهدف {target_val:.4f} كمستوى أدنى."
+    reasoning.append(advice)
 
     structure_state = 1 if trend == "BULLISH" else -1
 
@@ -535,7 +536,7 @@ def compute_ema_structure_signal(
         "lastPivotHigh": {"price": top_now, "time": last_top.dropna().index[-1]} if top_now is not None and len(last_top.dropna()) else None,
         "lastPivotLow": {"price": bot_now, "time": last_bot.dropna().index[-1]} if bot_now is not None and len(last_bot.dropna()) else None,
         "emas": emas, "lastTop": last_top, "lastBot": last_bot, "midLine": mid_price,
-        "markers": markers,
+        "markers": markers, "advice": advice,
     }
 
 
