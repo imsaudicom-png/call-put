@@ -19,7 +19,11 @@ export default function ChartView({ result }: { result: AnalysisResult }) {
       height: 480,
       timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#1f2530" },
       rightPriceScale: { borderColor: "#1f2530" },
-      crosshair: { mode: 1 },
+      crosshair: {
+        mode: 1,
+        vertLine: { visible: false, labelVisible: false },
+        horzLine: { visible: false, labelVisible: false },
+      },
     });
     chartRef.current = chart;
 
